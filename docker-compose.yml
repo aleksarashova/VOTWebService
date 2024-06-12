@@ -1,0 +1,118 @@
+version: '3.8'
+
+services:
+  mariadb1:
+    image: mariadb:latest
+    container_name: mariadb1
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    volumes:
+      - mariadb1_data:/var/lib/mysql
+    networks:
+      - mariadb_cluster
+
+  mariadb2:
+    image: mariadb:latest
+    container_name: mariadb2
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    volumes:
+      - mariadb2_data:/var/lib/mysql
+    networks:
+      - mariadb_cluster
+
+  maxscale:
+    image: mariadb/maxscale:latest
+    container_name: maxscale
+    environment:
+      MAXSCALE_USER: admin
+      MAXSCALE_PASSWORD: admin_password
+    ports:
+      - "3306:3306"
+      - "8989:8989" # MaxScale GUI
+    volumes:
+      - maxscale_data:/var/lib/maxscale
+      - type: bind
+        source: ./maxscale.cnf
+        target: /etc/maxscale.cnf
+    depends_on:
+      - mariadb1
+      - mariadb2
+    networks:
+      - mariadb_cluster
+
+  postgresql:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: keycloak
+      POSTGRES_DB: keycloak
+      POSTGRES_PASSWORD: SUPERsecret
+    ports:
+      - 6543:5432
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    networks:
+      - keycloak
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:22.0.3
+    restart: always
+    command: start-dev
+    depends_on:
+      - postgresql
+    environment:
+      KC_HOSTNAME_STRICT: 'false'
+      KC_DB: postgres
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: SUPERsecret
+      KC_DB_URL_HOST: postgresql
+      KC_DB_URL_PORT: 5432
+      KC_DB_URL_DATABASE: keycloak
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: password
+    ports:
+      - 8080:8080
+    networks:
+      - keycloak
+
+  backend:
+    build: ./backend
+    container_name: flask_backend
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mariadb1
+      - mariadb2
+      - maxscale
+      - keycloak
+    networks:
+      - mariadb_cluster
+      - keycloak
+
+  frontend:
+    build: ./frontend
+    container_name: react_frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+      - keycloak
+    networks:
+      - keycloak
+
+networks:
+  mariadb_cluster:
+    driver: bridge
+  keycloak:
+
+volumes:
+  mariadb1_data:
+  mariadb2_data:
+  maxscale_data:
+  postgresql_data:
